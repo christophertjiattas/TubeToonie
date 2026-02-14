@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/*.log
+.streamlit/cache/
+
+# Local app data (never commit credentials)
+# (Keychain/Credential Manager is used, but just in case)
+*.env
+.env
+
+# Downloads / media artifacts
+downloads/
+*.mp3
+*.m4a
+*.wav
+*.flac
+*.ogg
+*.opus
+*.aac
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/

@@ -1,0 +1,4 @@
+yt-dlp
+streamlit
+rich
+keyring
