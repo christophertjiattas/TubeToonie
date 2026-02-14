@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "YTAudio setup: installing dependencies"
+echo "TubeToonie setup: installing dependencies"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Error: python3 not found. Install Python 3.10+ and retry."
@@ -61,4 +61,4 @@ python_bin=".venv/bin/python"
 echo "Setup complete."
 echo "CLI: ${python_bin} YTAudio.py"
 echo "TUI: chmod +x run-tui.sh && ./run-tui.sh"
-echo "Streamlit UI: chmod +x run-ui.sh && ./run-ui.sh"
+echo "Streamlit UI: chmod +x run-ui-easy.sh && ./run-ui-easy.sh"
