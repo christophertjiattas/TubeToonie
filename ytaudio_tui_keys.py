@@ -63,12 +63,17 @@ def parse_ansi_escape_sequence(seq: str) -> Key:
 
 
 def _read_after_escape_unix(
+    fd: int,
     *,
     max_bytes: int = 8,
-    first_timeout_s: float = 0.10,
-    next_timeout_s: float = 0.02,
+    first_timeout_s: float = 0.15,
+    next_timeout_s: float = 0.03,
 ) -> str:
     """Read extra bytes after ESC without blocking forever.
+
+    We use `os.read()` on the raw file descriptor to avoid Python text IO
+    buffering issues (which can cause iTerm2 arrow sequences to be misread as
+    a standalone ESC).
 
     Terminals usually send arrow keys as a quick multi-byte sequence. The first
     byte can arrive slightly later than ESC, so we wait a touch longer for it.
@@ -76,23 +81,23 @@ def _read_after_escape_unix(
 
     import select
 
-    buf: list[str] = []
+    buf = bytearray()
 
-    # Wait a bit longer for the *first* byte after ESC.
-    rlist, _, _ = select.select([sys.stdin], [], [], first_timeout_s)
+    # Wait longer for the *first* byte after ESC.
+    rlist, _, _ = select.select([fd], [], [], first_timeout_s)
     if not rlist:
         return ""
 
-    buf.append(sys.stdin.read(1))
+    buf.extend(os.read(fd, 1))
 
     # Then drain remaining bytes quickly.
     for _ in range(max_bytes - 1):
-        rlist2, _, _ = select.select([sys.stdin], [], [], next_timeout_s)
+        rlist2, _, _ = select.select([fd], [], [], next_timeout_s)
         if not rlist2:
             break
-        buf.append(sys.stdin.read(1))
+        buf.extend(os.read(fd, 1))
 
-    return "".join(buf)
+    return buf.decode("ascii", errors="ignore")
 
 
 def read_key() -> Key:
@@ -132,23 +137,24 @@ def read_key() -> Key:
         return "other"
 
     with _raw_mode_unix():
-        ch1 = sys.stdin.read(1)
+        fd = sys.stdin.fileno()
+        ch1b = os.read(fd, 1)
 
-        # If stdin isn't a real TTY (or is closed), read() can return "".
-        # Treat it like cancel to avoid a tight loop.
-        if ch1 == "":
+        if ch1b == b"":
             return "eof"
+
+        ch1 = ch1b.decode("ascii", errors="ignore")
 
         if ch1 in ("\r", "\n"):
             return "enter"
         if ch1 == " ":
             return "space"
-        if ch1 in ("\x7f",):
+        if ch1 == "\x7f":
             return "backspace"
 
         if ch1 == "\x1b":
             # Esc can be a standalone key OR the start of an arrow escape sequence.
-            seq = _read_after_escape_unix()
+            seq = _read_after_escape_unix(fd)
             return parse_ansi_escape_sequence(seq)
 
         return "other"
