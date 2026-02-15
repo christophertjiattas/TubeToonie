@@ -18,12 +18,19 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 from rich.text import Text
 
 from ytaudio_core import DownloadProgress, download_audio, prepare_output_dir
-from ytaudio_tonie import load_tonie_target_ids_from_env, maybe_push_to_tonies
 from ytaudio_inputs import load_urls_from_file, parse_urls_from_text
+from ytaudio_tonie import (
+    TonieChapterEdit,
+    list_creative_tonies,
+    list_creative_tonies_detailed,
+    load_tonie_target_ids_from_env,
+    maybe_push_to_tonies,
+    update_creative_tonie_chapters,
+)
 
 
 @dataclass(frozen=True)
@@ -53,11 +60,17 @@ def _prompt_multiline(console: Console) -> str:
     return "\n".join(lines)
 
 
-def _prompt_for_inputs(console: Console) -> ResolvedInputs:
-    console.print(Panel("[b]YTAudio TUI[/b] \u2014 YouTube \u2192 MP3 downloader", expand=False))
+def _prompt_for_output_dir(console: Console) -> Path:
+    default_dir = str(Path.cwd() / "downloads")
+    output_dir = Path(Prompt.ask("Output directory", default=default_dir)).expanduser()
+    return prepare_output_dir(output_dir)
+
+
+def _prompt_for_youtube_inputs(console: Console) -> ResolvedInputs:
+    console.print(Panel("[b]TubeToonie TUI[/b] \u2014 YouTube/Local audio \u2192 MP3 \u2192 Tonie", expand=False))
 
     mode = Prompt.ask(
-        "Input mode",
+        "YouTube input mode",
         choices=["single", "paste", "file"],
         default="single",
     )
@@ -75,13 +88,10 @@ def _prompt_for_inputs(console: Console) -> ResolvedInputs:
             raise ValueError(f"File does not exist: {path}")
         urls = load_urls_from_file(path)
 
-    default_dir = str(Path.cwd() / "downloads")
-    output_dir = Path(Prompt.ask("Output directory", default=default_dir)).expanduser()
-
     if not urls:
         raise ValueError("No URLs provided.")
 
-    return ResolvedInputs(urls=urls, output_dir=prepare_output_dir(output_dir))
+    return ResolvedInputs(urls=urls, output_dir=_prompt_for_output_dir(console))
 
 
 class _RichDownloadDisplay:
@@ -100,7 +110,6 @@ class _RichDownloadDisplay:
 
     def _ensure_task(self, label: str) -> int:
         if self._task_id is None:
-            # Total is unknown at first; we set it when we learn it.
             self._task_id = self._progress.add_task(label, total=100)
         return self._task_id
 
@@ -110,7 +119,7 @@ class _RichDownloadDisplay:
             self._task_id = None
         self._ensure_task(label)
         self._progress.update(self._task_id, completed=0)
-        self.set_status("Preparing download...")
+        self.set_status("Preparing...")
 
     def set_status(self, message: str) -> None:
         self._status.plain = message
@@ -122,7 +131,6 @@ class _RichDownloadDisplay:
             self._progress.update(task_id, total=progress.total_bytes, completed=progress.downloaded_bytes)
             return
 
-        # Fallback if yt-dlp can't provide total bytes.
         percent_value = _parse_percent(progress.percent)
         self._progress.update(task_id, total=100, completed=percent_value)
 
@@ -130,45 +138,170 @@ class _RichDownloadDisplay:
         return Group(Panel(self._status, title="Status", expand=False), self._progress)
 
 
+def _download_youtube_to_mp3(console: Console) -> int:
+    inputs = _prompt_for_youtube_inputs(console)
+
+    failures: list[str] = []
+    display = _RichDownloadDisplay(console)
+
+    targets = load_tonie_target_ids_from_env()
+
+    with Live(display.renderable(), console=console, refresh_per_second=12):
+        total = len(inputs.urls)
+        for index, url in enumerate(inputs.urls, start=1):
+            label = f"({index}/{total}) Downloading"
+            display.reset(label)
+
+            def on_status(message: str) -> None:
+                display.set_status(message)
+
+            def on_progress(event: DownloadProgress) -> None:
+                display.on_progress(event, label=label)
+
+            try:
+                mp3_path = download_audio(url, inputs.output_dir, on_progress=on_progress, on_status=on_status)
+                uploaded = maybe_push_to_tonies(mp3_path, creative_tonie_ids=targets, on_status=on_status)
+                if targets:
+                    display.set_status(f"Uploaded to {uploaded} Tonie(s)")
+                else:
+                    display.set_status("Done")
+            except yt_dlp.utils.DownloadError as error:
+                failures.append(url)
+                display.set_status(f"Download error: {error}")
+            except Exception as error:
+                failures.append(url)
+                display.set_status(f"Unexpected error: {error}")
+
+    if failures:
+        console.print("\n[bold red]Some downloads failed:[/bold red]")
+        for bad in failures:
+            console.print(f" - {bad}")
+        console.print(f"\nSaved successful files to: [bold]{inputs.output_dir}[/bold]")
+        return 2
+
+    console.print(f"\n[bold green]All done![/bold green] Saved files to: [bold]{inputs.output_dir}[/bold]")
+    return 0
+
+
+def _push_local_audio(console: Console) -> int:
+    console.print(Panel("[b]Push local audio[/b] \u2014 upload files to one/both Tonies", expand=False))
+    raw = Prompt.ask("Enter file path(s), comma-separated")
+    paths = [Path(p.strip()).expanduser() for p in raw.split(",") if p.strip()]
+    if not paths:
+        raise ValueError("No files provided.")
+
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        raise ValueError("Missing file(s): " + ", ".join(str(p) for p in missing))
+
+    targets = load_tonie_target_ids_from_env()
+    if not targets:
+        console.print("[yellow]No TONIE_CREATIVE_TONIE_ID(S) set. Upload will use default Tonie selection.[/yellow]")
+
+    for p in paths:
+        title = Prompt.ask(f"Chapter title for {p.name}", default=p.stem)
+        console.print(f"Uploading: {p}")
+        uploaded = maybe_push_to_tonies(p, creative_tonie_ids=targets, chapter_title=title)
+        console.print(f"Uploaded to {uploaded} Tonie(s).")
+
+    return 0
+
+
+def _list_tonies(console: Console) -> int:
+    tonies = list_creative_tonies()
+    if not tonies:
+        console.print("[yellow]No Tonies loaded. Configure credentials and install requirements-tonie.txt[/yellow]")
+        return 0
+
+    for tonie in tonies:
+        console.print(f"\n[bold]{tonie.name}[/bold] ({tonie.id})")
+        if not tonie.chapters:
+            console.print("  (no chapters)")
+        else:
+            for idx, ch in enumerate(tonie.chapters, start=1):
+                console.print(f"  {idx:02d}. {ch.title}")
+
+    return 0
+
+
+def _edit_tonie(console: Console) -> int:
+    tonies = list_creative_tonies_detailed()
+    if not tonies:
+        console.print("[yellow]No Tonies loaded. Configure credentials and install requirements-tonie.txt[/yellow]")
+        return 0
+
+    console.print("\nAvailable Creative Tonies:")
+    for idx, t in enumerate(tonies, start=1):
+        console.print(f"  {idx}. {t.name} ({t.id})")
+
+    choice = int(Prompt.ask("Select Tonie number"))
+    selected = tonies[choice - 1]
+
+    if not selected.chapters:
+        console.print("This Tonie has no chapters.")
+        return 0
+
+    chapters = list(selected.chapters)
+
+    # Rename
+    while True:
+        console.print("\nChapters:")
+        for idx, ch in enumerate(chapters, start=1):
+            console.print(f"  {idx:02d}. {ch.title}")
+
+        if not Confirm.ask("Rename a chapter?", default=False):
+            break
+
+        index = int(Prompt.ask("Chapter number"))
+        if index < 1 or index > len(chapters):
+            console.print("[red]Invalid chapter number.[/red]")
+            continue
+
+        new_title = Prompt.ask("New title").strip()
+        old = chapters[index - 1]
+        chapters[index - 1] = TonieChapterEdit(
+            id=old.id,
+            title=new_title,
+            file=old.file,
+            seconds=old.seconds,
+            transcoding=old.transcoding,
+        )
+
+    # Reorder
+    if Confirm.ask("Reorder chapters?", default=False):
+        raw = Prompt.ask("New order (comma-separated indices, e.g. 3,1,2)").strip()
+        order = [int(p.strip()) for p in raw.split(",") if p.strip()]
+        if sorted(order) != list(range(1, len(chapters) + 1)):
+            raise ValueError("Order must be a permutation of 1..N")
+        chapters = [chapters[i - 1] for i in order]
+
+    console.print("Applying changes...")
+    update_creative_tonie_chapters(selected.id, chapters)
+    console.print("[green]Done.[/green] Refresh your Toniebox to sync.")
+
+    return 0
+
+
 def main() -> int:
     console = Console()
 
     try:
-        inputs = _prompt_for_inputs(console)
+        console.print(Panel("[b]TubeToonie TUI[/b]", expand=False))
 
-        failures: list[str] = []
-        display = _RichDownloadDisplay(console)
-        with Live(display.renderable(), console=console, refresh_per_second=12):
-            total = len(inputs.urls)
-            for index, url in enumerate(inputs.urls, start=1):
-                label = f"({index}/{total}) Downloading"
-                display.reset(label)
+        action = Prompt.ask(
+            "What do you want to do?",
+            choices=["download", "push-local", "list-tonies", "edit-tonie", "quit"],
+            default="download",
+        )
 
-                def on_status(message: str) -> None:
-                    display.set_status(message)
-
-                def on_progress(event: DownloadProgress) -> None:
-                    display.on_progress(event, label=label)
-
-                try:
-                    mp3_path = download_audio(url, inputs.output_dir, on_progress=on_progress, on_status=on_status)
-                    maybe_push_to_tonies(mp3_path, creative_tonie_ids=load_tonie_target_ids_from_env(), on_status=on_status)
-                    display.set_status(f"Done: {url}")
-                except yt_dlp.utils.DownloadError as error:
-                    failures.append(url)
-                    display.set_status(f"Download error: {error}")
-                except Exception as error:
-                    failures.append(url)
-                    display.set_status(f"Unexpected error: {error}")
-
-        if failures:
-            console.print("\n[bold red]Some downloads failed:[/bold red]")
-            for bad in failures:
-                console.print(f" - {bad}")
-            console.print(f"\nSaved successful files to: [bold]{inputs.output_dir}[/bold]")
-            return 2
-
-        console.print(f"\n[bold green]All done![/bold green] Saved files to: [bold]{inputs.output_dir}[/bold]")
+        if action == "download":
+            return _download_youtube_to_mp3(console)
+        if action == "push-local":
+            return _push_local_audio(console)
+        if action == "list-tonies":
+            return _list_tonies(console)
+        if action == "edit-tonie":
+            return _edit_tonie(console)
         return 0
 
     except ValueError as error:

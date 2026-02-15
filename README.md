@@ -59,14 +59,29 @@ What it does:
 ```
 
 ### CLI
+Interactive download (prompts for URL + output dir):
 ```bash
 .venv/bin/python YTAudio.py
 ```
 
+Subcommands (more explicit / scriptable):
+```bash
+.venv/bin/python YTAudio.py download --url "https://www.youtube.com/watch?v=..." --output-dir ./downloads
+.venv/bin/python YTAudio.py push-local ./some-audio.mp3
+.venv/bin/python YTAudio.py list-tonies
+.venv/bin/python YTAudio.py edit-tonie
+```
+
 ### TUI
+Menu-driven terminal UI:
 ```bash
 ./run-tui.sh
 ```
+Actions include:
+- download YouTube audio
+- push local audio
+- list tonies
+- edit tonie chapters (rename/reorder)
 
 ## Streamlit app guide (tabs)
 ### 1) Download / Upload
