@@ -22,6 +22,13 @@ Optional Tonie integration:
 ## Quick start (Streamlit UI)
 This is the easiest way to run TubeToonie.
 
+### Option A: double-click (macOS / Windows)
+- macOS: double-click `launchers/TubeToonie.command`
+- Windows: double-click `launchers/TubeToonie.bat`
+
+macOS note: the first time you run it, you may need to right-click > Open (Gatekeeper).
+
+### Option B: terminal
 ```bash
 chmod +x run-ui-easy.sh
 ./run-ui-easy.sh

@@ -7,6 +7,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Project-local caches/artifacts
+__pycache__/
+downloads/
+
 # Virtual environments
 .venv/
 venv/
