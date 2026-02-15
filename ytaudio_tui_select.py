@@ -64,7 +64,10 @@ def select_one(console: Console, title: str, options: Iterable[str], *, default_
         _build_panel(title, opts, selected_index),
         console=console,
         refresh_per_second=30,
+        auto_refresh=False,
+        transient=True,
     ) as live:
+        live.refresh()
         while True:
             key = read_key()
 
@@ -74,10 +77,11 @@ def select_one(console: Console, title: str, options: Iterable[str], *, default_
                 selected_index = (selected_index + 1) % len(opts)
             elif key == "enter":
                 return opts[selected_index]
-            elif key == "esc":
+            elif key in ("esc", "eof"):
                 return None
 
             live.update(_build_panel(title, opts, selected_index))
+            live.refresh()
 
 
 def select_many(console: Console, title: str, options: Iterable[str]) -> list[str] | None:
@@ -98,7 +102,10 @@ def select_many(console: Console, title: str, options: Iterable[str]) -> list[st
         _build_panel(title, opts, selected_index, selected=picked),
         console=console,
         refresh_per_second=30,
+        auto_refresh=False,
+        transient=True,
     ) as live:
+        live.refresh()
         while True:
             key = read_key()
 
@@ -113,7 +120,8 @@ def select_many(console: Console, title: str, options: Iterable[str]) -> list[st
                     picked.add(selected_index)
             elif key == "enter":
                 return [opts[i] for i in sorted(picked)]
-            elif key == "esc":
+            elif key in ("esc", "eof"):
                 return None
 
             live.update(_build_panel(title, opts, selected_index, selected=picked))
+            live.refresh()

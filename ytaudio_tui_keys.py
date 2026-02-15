@@ -111,6 +111,11 @@ def read_key() -> Key:
     with _raw_mode_unix():
         ch1 = sys.stdin.read(1)
 
+        # If stdin isn't a real TTY (or is closed), read() can return "".
+        # Treat it like cancel to avoid a tight loop.
+        if ch1 == "":
+            return "eof"
+
         if ch1 in ("\r", "\n"):
             return "enter"
         if ch1 == " ":
