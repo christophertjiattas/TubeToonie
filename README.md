@@ -73,7 +73,7 @@ Subcommands (more explicit / scriptable):
 ```
 
 ### TUI
-Menu-driven terminal UI:
+Menu-driven terminal UI (use arrow keys: ↑/↓ + Enter):
 ```bash
 ./run-tui.sh
 ```

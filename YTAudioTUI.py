@@ -19,6 +19,8 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 from rich.prompt import Confirm, Prompt
+
+from ytaudio_tui_select import select_one
 from rich.text import Text
 
 from ytaudio_core import DownloadProgress, download_audio, prepare_output_dir
@@ -69,11 +71,9 @@ def _prompt_for_output_dir(console: Console) -> Path:
 def _prompt_for_youtube_inputs(console: Console) -> ResolvedInputs:
     console.print(Panel("[b]TubeToonie TUI[/b] \u2014 YouTube/Local audio \u2192 MP3 \u2192 Tonie", expand=False))
 
-    mode = Prompt.ask(
-        "YouTube input mode",
-        choices=["single", "paste", "file"],
-        default="single",
-    )
+    mode = select_one(console, "YouTube input mode", ["single", "paste", "file"], default_index=0)
+    if mode is None:
+        raise ValueError("Cancelled.")
 
     if mode == "single":
         url = Prompt.ask("YouTube URL").strip()
@@ -230,12 +230,12 @@ def _edit_tonie(console: Console) -> int:
         console.print("[yellow]No Tonies loaded. Configure credentials and install requirements-tonie.txt[/yellow]")
         return 0
 
-    console.print("\nAvailable Creative Tonies:")
-    for idx, t in enumerate(tonies, start=1):
-        console.print(f"  {idx}. {t.name} ({t.id})")
-
-    choice = int(Prompt.ask("Select Tonie number"))
-    selected = tonies[choice - 1]
+    labels = [f"{t.name} ({t.id})" for t in tonies]
+    picked = select_one(console, "Select a Creative Tonie", labels, default_index=0)
+    if picked is None:
+        raise ValueError("Cancelled.")
+    selected_index = labels.index(picked)
+    selected = tonies[selected_index]
 
     if not selected.chapters:
         console.print("This Tonie has no chapters.")
@@ -252,14 +252,15 @@ def _edit_tonie(console: Console) -> int:
         if not Confirm.ask("Rename a chapter?", default=False):
             break
 
-        index = int(Prompt.ask("Chapter number"))
-        if index < 1 or index > len(chapters):
-            console.print("[red]Invalid chapter number.[/red]")
-            continue
+        chapter_labels = [ch.title for ch in chapters]
+        picked_ch = select_one(console, "Pick chapter to rename", chapter_labels, default_index=0)
+        if picked_ch is None:
+            break
+        index = chapter_labels.index(picked_ch)
 
         new_title = Prompt.ask("New title").strip()
-        old = chapters[index - 1]
-        chapters[index - 1] = TonieChapterEdit(
+        old = chapters[index]
+        chapters[index] = TonieChapterEdit(
             id=old.id,
             title=new_title,
             file=old.file,
@@ -288,11 +289,14 @@ def main() -> int:
     try:
         console.print(Panel("[b]TubeToonie TUI[/b]", expand=False))
 
-        action = Prompt.ask(
+        action = select_one(
+            console,
             "What do you want to do?",
-            choices=["download", "push-local", "list-tonies", "edit-tonie", "quit"],
-            default="download",
+            ["download", "push-local", "list-tonies", "edit-tonie", "quit"],
+            default_index=0,
         )
+        if action is None:
+            return 0
 
         if action == "download":
             return _download_youtube_to_mp3(console)
