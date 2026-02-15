@@ -26,7 +26,15 @@ This is the easiest way to run TubeToonie.
 - macOS: double-click `launchers/TubeToonie.command`
 - Windows: double-click `launchers/TubeToonie.bat`
 
-macOS note: the first time you run it, you may need to right-click > Open (Gatekeeper).
+macOS notes:
+- The first time you run it, you may need to right-click > Open (Gatekeeper).
+- If it opens in a text editor instead of Terminal, run once:
+  ```bash
+  chmod +x launchers/TubeToonie.command
+  ```
+
+Windows note:
+- `TubeToonie.bat` expects **Git Bash** (`bash`) so it can run the existing `.sh` scripts. Install Git for Windows: https://git-scm.com/download/win
 
 ### Option B: terminal
 ```bash
