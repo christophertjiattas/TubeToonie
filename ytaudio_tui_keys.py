@@ -22,6 +22,56 @@ def _raw_mode_unix():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
+_ARROW_MAP = {
+    "A": "up",
+    "B": "down",
+    "C": "right",
+    "D": "left",
+}
+
+
+def parse_ansi_escape_sequence(seq: str) -> Key:
+    """Parse the bytes *after* an ESC (\x1b) into a normalized key.
+
+    Examples:
+        "[A"     -> up
+        "OA"     -> up (application cursor mode)
+        "[1;5A"  -> up (modifier variants)
+
+    Returns:
+        up/down/left/right if recognized,
+        esc if not recognized.
+
+    This is intentionally conservative: unknown sequences map to `esc`.
+    """
+
+    if not seq:
+        return "esc"
+
+    # Common cases:
+    #   ESC [ A
+    #   ESC O A
+    if seq[0] not in ("[", "O"):
+        return "esc"
+
+    last = seq[-1]
+    return _ARROW_MAP.get(last, "esc")
+
+
+def _read_after_escape_unix(*, max_bytes: int = 8, timeout_s: float = 0.02) -> str:
+    """Read extra bytes after ESC without blocking forever."""
+
+    import select
+
+    buf: list[str] = []
+    for _ in range(max_bytes):
+        rlist, _, _ = select.select([sys.stdin], [], [], timeout_s)
+        if not rlist:
+            break
+        buf.append(sys.stdin.read(1))
+    return "".join(buf)
+
+
 def read_key() -> Key:
     """Read a single keypress and normalize to a small set of names.
 
@@ -60,23 +110,17 @@ def read_key() -> Key:
 
     with _raw_mode_unix():
         ch1 = sys.stdin.read(1)
+
         if ch1 in ("\r", "\n"):
             return "enter"
-        if ch1 == "\x1b":
-            # Possibly an escape sequence
-            ch2 = sys.stdin.read(1)
-            if ch2 != "[":
-                return "esc"
-            ch3 = sys.stdin.read(1)
-            return {
-                "A": "up",
-                "B": "down",
-                "C": "right",
-                "D": "left",
-            }.get(ch3, "other")
         if ch1 == " ":
             return "space"
         if ch1 in ("\x7f",):
             return "backspace"
+
+        if ch1 == "\x1b":
+            # Esc can be a standalone key OR the start of an arrow escape sequence.
+            seq = _read_after_escape_unix()
+            return parse_ansi_escape_sequence(seq)
 
         return "other"
