@@ -39,10 +39,14 @@ def parse_ansi_escape_sequence(seq: str) -> Key:
         "[1;5A"  -> up (modifier variants)
 
     Returns:
-        up/down/left/right if recognized,
-        esc if not recognized.
+        up/down/left/right if recognized.
+        esc if *no* bytes followed ESC (standalone Esc key).
+        other for unknown escape sequences.
 
-    This is intentionally conservative: unknown sequences map to `esc`.
+    Rationale:
+        Arrow keys must never be misinterpreted as Esc (cancel). If we see some
+        bytes after ESC but dont recognize them, we return `other` so callers
+        can safely ignore it.
     """
 
     if not seq:
@@ -52,23 +56,42 @@ def parse_ansi_escape_sequence(seq: str) -> Key:
     #   ESC [ A
     #   ESC O A
     if seq[0] not in ("[", "O"):
-        return "esc"
+        return "other"
 
     last = seq[-1]
-    return _ARROW_MAP.get(last, "esc")
+    return _ARROW_MAP.get(last, "other")
 
 
-def _read_after_escape_unix(*, max_bytes: int = 8, timeout_s: float = 0.02) -> str:
-    """Read extra bytes after ESC without blocking forever."""
+def _read_after_escape_unix(
+    *,
+    max_bytes: int = 8,
+    first_timeout_s: float = 0.10,
+    next_timeout_s: float = 0.02,
+) -> str:
+    """Read extra bytes after ESC without blocking forever.
+
+    Terminals usually send arrow keys as a quick multi-byte sequence. The first
+    byte can arrive slightly later than ESC, so we wait a touch longer for it.
+    """
 
     import select
 
     buf: list[str] = []
-    for _ in range(max_bytes):
-        rlist, _, _ = select.select([sys.stdin], [], [], timeout_s)
-        if not rlist:
+
+    # Wait a bit longer for the *first* byte after ESC.
+    rlist, _, _ = select.select([sys.stdin], [], [], first_timeout_s)
+    if not rlist:
+        return ""
+
+    buf.append(sys.stdin.read(1))
+
+    # Then drain remaining bytes quickly.
+    for _ in range(max_bytes - 1):
+        rlist2, _, _ = select.select([sys.stdin], [], [], next_timeout_s)
+        if not rlist2:
             break
         buf.append(sys.stdin.read(1))
+
     return "".join(buf)
 
 

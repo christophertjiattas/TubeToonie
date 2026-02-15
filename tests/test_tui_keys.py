@@ -23,7 +23,7 @@ def test_parse_ansi_escape_sequence_modifier_variant():
     assert parse_ansi_escape_sequence("[1;5A") == "up"
 
 
-def test_parse_ansi_escape_sequence_unknown_is_esc():
+def test_parse_ansi_escape_sequence_unknown_is_other():
     assert parse_ansi_escape_sequence("") == "esc"
-    assert parse_ansi_escape_sequence("?") == "esc"
-    assert parse_ansi_escape_sequence("[Z") == "esc"
+    assert parse_ansi_escape_sequence("?") == "other"
+    assert parse_ansi_escape_sequence("[Z") == "other"
